@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const { getEnvValue } = require("./config/env");
 const { notFoundMiddleware, errorMiddleware } = require("./middleware/errorMiddleware");
 
 const authRoutes = require("./routes/authRoutes");
@@ -18,7 +19,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin: getEnvValue("CLIENT_URL", "http://localhost:3000"),
     credentials: true
   })
 );

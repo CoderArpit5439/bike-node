@@ -3,22 +3,23 @@ const fs = require("fs");
 const path = require("path");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
+const { getEnvValue } = require("../config/env");
 
 const schemaPath = path.join(__dirname, "..", "sql", "schema.sql");
 
 const seed = async () => {
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
+    host: getEnvValue("DB_HOST", "localhost"),
+    port: Number(getEnvValue("DB_PORT", 3306)),
+    user: getEnvValue("DB_USER", "root"),
+    password: getEnvValue("DB_PASSWORD", ""),
     multipleStatements: true
   });
 
   try {
     const schema = fs.readFileSync(schemaPath, "utf8");
     await connection.query(schema);
-    await connection.query(`USE ${process.env.DB_NAME}`);
+    await connection.query(`USE ${getEnvValue("DB_NAME", "bikexpert")}`);
 
     const adminPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || "Admin@123", 10);
     await connection.query(

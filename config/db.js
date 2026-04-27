@@ -1,11 +1,12 @@
 const mysql = require("mysql2/promise");
+const { getEnvValue } = require("./env");
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  host: getEnvValue("DB_HOST", "localhost"),
+  port: Number(getEnvValue("DB_PORT", 3306)),
+  user: getEnvValue("DB_USER", "root"),
+  password: getEnvValue("DB_PASSWORD", ""),
+  database: getEnvValue("DB_NAME", "bikexpert"),
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
