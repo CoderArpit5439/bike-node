@@ -1,9 +1,11 @@
-const router = require("express").Router();
-const publicController = require("../controllers/publicController");
-const { contactValidation } = require("../validators/publicValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { getBootstrap, submitContactForm } from "../controllers/publicController.js";
+import { validate } from "../utils/validation.js";
+import { contactValidation } from "../validators/publicValidators.js";
 
-router.get("/bootstrap", publicController.getBootstrap);
-router.post("/contact", contactValidation, validate, publicController.submitContactForm);
+const router = express.Router();
 
-module.exports = router;
+router.get("/bootstrap", getBootstrap);
+router.post("/contact", contactValidation, validate, submitContactForm);
+
+export default router;

@@ -1,17 +1,12 @@
-const asyncHandler = require("../utils/asyncHandler");
-const settingService = require("../services/settingService");
+import asyncHandler from "../utils/asyncHandler.js";
+import settingService from "../services/settingService.js";
 
-const getSettings = asyncHandler(async (req, res) => {
+export const getSettings = asyncHandler(async (req, res) => {
   const data = await settingService.getSettings(req.user.id);
   res.json({ success: true, data });
 });
 
-const updateSettings = asyncHandler(async (req, res) => {
-  await settingService.updateSettings(req.user.id, req.body);
-  res.json({ success: true, message: "Settings updated successfully" });
+export const updateSettings = asyncHandler(async (req, res) => {
+  const data = await settingService.updateSettings(req.user.id, req.body);
+  res.json({ success: true, message: "Settings updated successfully", data });
 });
-
-module.exports = {
-  getSettings,
-  updateSettings
-};

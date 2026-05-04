@@ -1,7 +1,7 @@
-require("dotenv").config();
-const app = require("./app");
-const { testConnection } = require("./config/db");
-const { getEnvValue } = require("./config/env");
+import "dotenv/config";
+import app from "./app.js";
+import { testConnection } from "./config/database.js";
+import { getEnvValue } from "./config/env.config.js";
 
 const PORT = Number(getEnvValue("PORT", 5000));
 

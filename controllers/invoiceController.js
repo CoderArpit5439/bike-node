@@ -1,11 +1,7 @@
-const asyncHandler = require("../utils/asyncHandler");
-const invoiceService = require("../services/invoiceService");
+import asyncHandler from "../utils/asyncHandler.js";
+import invoiceService from "../services/invoiceService.js";
 
-const getInvoiceDetail = asyncHandler(async (req, res) => {
+export const getInvoiceDetail = asyncHandler(async (req, res) => {
   const data = await invoiceService.getInvoiceDetail(req.user.id, req.params.id);
   res.json({ success: true, data });
 });
-
-module.exports = {
-  getInvoiceDetail
-};

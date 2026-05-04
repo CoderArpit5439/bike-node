@@ -1,13 +1,15 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const reminderController = require("../controllers/reminderController");
-const { reminderValidation } = require("../validators/reminderValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { createReminder, listReminders, updateReminder } from "../controllers/reminderController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { reminderValidation } from "../validators/reminderValidators.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("scso"));
 
-router.post("/", reminderValidation, validate, reminderController.createReminder);
-router.get("/", reminderController.listReminders);
-router.put("/:id", reminderValidation, validate, reminderController.updateReminder);
+router.post("/", reminderValidation, validate, createReminder);
+router.get("/", listReminders);
+router.put("/:id", reminderValidation, validate, updateReminder);
 
-module.exports = router;
+export default router;

@@ -1,9 +1,15 @@
-require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
-const fs = require("fs");
-const path = require("path");
-const mysql = require("mysql2/promise");
-const bcrypt = require("bcryptjs");
-const { getEnvValue } = require("../config/env");
+import dotenv from "dotenv";
+import fs from "fs";
+import mysql from "mysql2/promise";
+import path from "path";
+import { fileURLToPath } from "url";
+import bcrypt from "bcryptjs";
+import { getEnvValue } from "../config/env.config.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const schemaPath = path.join(__dirname, "..", "sql", "schema.sql");
 
@@ -30,19 +36,11 @@ const seed = async () => {
     );
 
     const scsoPassword = await bcrypt.hash("Owner@123", 10);
-    const [scsoResult] = await connection.query(
+    await connection.query(
       `INSERT INTO scso_users (name, email, phone, password, shop_name, shop_address, whatsapp_number, role, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'scso', 'active')
        ON DUPLICATE KEY UPDATE phone = VALUES(phone), shop_name = VALUES(shop_name), shop_address = VALUES(shop_address)`,
-      [
-        "Demo Shop Owner",
-        "owner@bikexpert.local",
-        "9876543210",
-        scsoPassword,
-        "Demo Bike Care",
-        "MG Road, Bengaluru",
-        "9876543210"
-      ]
+      ["Demo Shop Owner", "owner@bikexpert.local", "9876543210", scsoPassword, "Demo Bike Care", "MG Road, Bengaluru", "9876543210"]
     );
 
     const [ownerRows] = await connection.query("SELECT id FROM scso_users WHERE email = ? LIMIT 1", [
@@ -59,18 +57,9 @@ const seed = async () => {
 
     await connection.query(
       `INSERT INTO settings (scope_type, scope_id, setting_key, setting_value)
-       VALUES ('scso', ?, 'shop_address', ?),
-              ('scso', ?, 'shop_phone', ?),
-              ('scso', ?, 'map_iframe_url', ?)
+       VALUES ('scso', ?, 'map_iframe_url', ?)
        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-      [
-        ownerId,
-        "MG Road, Bengaluru",
-        ownerId,
-        "9876543210",
-        ownerId,
-        process.env.DEFAULT_MAP_IFRAME || "https://www.google.com/maps?q=Delhi%20India&z=12&output=embed"
-      ]
+      [ownerId, process.env.DEFAULT_MAP_IFRAME || "https://www.google.com/maps?q=Delhi%20India&z=12&output=embed"]
     );
 
     const [customerRows] = await connection.query("SELECT id FROM customers WHERE phone_number = ? LIMIT 1", [

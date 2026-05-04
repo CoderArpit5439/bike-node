@@ -1,8 +1,9 @@
-const bcrypt = require("bcryptjs");
-const { pool } = require("../config/db");
-const ApiError = require("../utils/apiError");
-const { StatusCodes } = require("http-status-codes");
-const { signToken } = require("../utils/jwt");
+import bcrypt from "bcryptjs";
+import { StatusCodes } from "http-status-codes";
+import scsoUserRepository from "../repositories/scsoUser.repository.js";
+import adminRepository from "../repositories/admin.repository.js";
+import ApiError from "../utils/apiError.js";
+import { signToken } from "../utils/jwt.js";
 
 const sanitizeUser = (user) => ({
   id: user.id,
@@ -17,72 +18,69 @@ const sanitizeUser = (user) => ({
   createdAt: user.created_at
 });
 
-const adminLogin = async ({ email, password }) => {
-  const [rows] = await pool.query("SELECT * FROM admins WHERE email = ? LIMIT 1", [email]);
-  const admin = rows[0];
+const authService = {
+  async adminLogin({ email, password }) {
+    const admin = await adminRepository.findByEmail(email);
 
-  if (!admin) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid admin credentials");
+    if (!admin) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid admin credentials");
+    }
+
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid admin credentials");
+    }
+
+    return {
+      token: signToken({ id: admin.id, role: "admin" }),
+      user: sanitizeUser(admin)
+    };
+  },
+
+  async scsoLogin({ email, password }) {
+    const user = await scsoUserRepository.findByEmail(email);
+
+    if (!user) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid credentials");
+    }
+
+    if (user.status !== "active") {
+      throw new ApiError(StatusCodes.FORBIDDEN, "Account is inactive");
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid credentials");
+    }
+
+    return {
+      token: signToken({ id: user.id, role: "scso" }),
+      user: sanitizeUser(user)
+    };
+  },
+
+  async scsoSignup({ name, email, phone, password, shopName, shopAddress, whatsappNumber }) {
+    const existing = await scsoUserRepository.findByEmail(email);
+    if (existing) {
+      throw new ApiError(StatusCodes.CONFLICT, "Email is already registered");
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await scsoUserRepository.create({
+      name,
+      email,
+      phone,
+      password: hashedPassword,
+      shop_name: shopName,
+      shop_address: shopAddress || null,
+      whatsapp_number: whatsappNumber || null
+    });
+
+    return {
+      token: signToken({ id: user.id, role: "scso" }),
+      user: sanitizeUser(user)
+    };
   }
-
-  const isMatch = await bcrypt.compare(password, admin.password);
-  if (!isMatch) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid admin credentials");
-  }
-
-  return {
-    token: signToken({ id: admin.id, role: "admin" }),
-    user: sanitizeUser(admin)
-  };
 };
 
-const scsoLogin = async ({ email, password }) => {
-  const [rows] = await pool.query("SELECT * FROM scso_users WHERE email = ? LIMIT 1", [email]);
-  const user = rows[0];
-
-  if (!user) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid credentials");
-  }
-
-  if (user.status !== "active") {
-    throw new ApiError(StatusCodes.FORBIDDEN, "Account is inactive");
-  }
-
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid credentials");
-  }
-
-  return {
-    token: signToken({ id: user.id, role: "scso" }),
-    user: sanitizeUser(user)
-  };
-};
-
-const scsoSignup = async ({ name, email, phone, password, shopName, shopAddress, whatsappNumber }) => {
-  const [existing] = await pool.query("SELECT id FROM scso_users WHERE email = ? LIMIT 1", [email]);
-  if (existing.length) {
-    throw new ApiError(StatusCodes.CONFLICT, "Email is already registered");
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const [result] = await pool.query(
-    `INSERT INTO scso_users (name, email, phone, password, shop_name, shop_address, whatsapp_number)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [name, email, phone, hashedPassword, shopName, shopAddress || null, whatsappNumber || null]
-  );
-
-  const [rows] = await pool.query("SELECT * FROM scso_users WHERE id = ? LIMIT 1", [result.insertId]);
-  const user = rows[0];
-
-  return {
-    token: signToken({ id: user.id, role: "scso" }),
-    user: sanitizeUser(user)
-  };
-};
-
-module.exports = {
-  adminLogin,
-  scsoLogin,
-  scsoSignup
-};
+export default authService;

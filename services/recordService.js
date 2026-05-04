@@ -1,280 +1,307 @@
-const { pool } = require("../config/db");
-const ApiError = require("../utils/apiError");
-const { StatusCodes } = require("http-status-codes");
-const { getSettingValue } = require("./commonService");
+import { StatusCodes } from "http-status-codes";
+import sequelize from "../config/database.js";
+import customerRepository from "../repositories/customer.repository.js";
+import invoiceRepository from "../repositories/invoice.repository.js";
+import reminderRepository from "../repositories/reminder.repository.js";
+import rewardTransactionRepository from "../repositories/rewardTransaction.repository.js";
+import rewardWalletRepository from "../repositories/rewardWallet.repository.js";
+import scsoUserRepository from "../repositories/scsoUser.repository.js";
+import serviceRecordItemRepository from "../repositories/serviceRecordItem.repository.js";
+import serviceRecordRepository from "../repositories/serviceRecord.repository.js";
+import serviceRepository from "../repositories/service.repository.js";
+import ApiError from "../utils/apiError.js";
 
 const createInvoiceNumber = (recordId) => `INV-${String(recordId).padStart(5, "0")}`;
 
 const buildWhatsappLink = (phoneNumber, message) =>
   `https://wa.me/${String(phoneNumber || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`;
 
-const createServiceRecord = async (scsoUserId, payload) => {
-  const connection = await pool.getConnection();
+const buildServiceReminderDate = (serviceDate, months) => {
+  const reminderDate = new Date(serviceDate);
+  reminderDate.setMonth(reminderDate.getMonth() + Number(months));
+  reminderDate.setDate(reminderDate.getDate() - 15);
+  return reminderDate;
+};
 
-  try {
-    await connection.beginTransaction();
+const recordService = {
+  async createServiceRecord(scsoUserId, payload) {
+    return sequelize.transaction(async (transaction) => {
+      const customer = await customerRepository.findForRecord(scsoUserId, payload.customerId, payload.bikeId, {
+        transaction
+      });
 
-    const [customerRows] = await connection.query(
-      `SELECT c.id, c.full_name, c.phone_number, c.whatsapp_number, b.id AS bike_id, b.bike_model, b.bike_number,
-              w.id AS wallet_id, w.current_balance
-       FROM customers c
-       INNER JOIN bikes b ON b.customer_id = c.id AND b.id = ?
-       INNER JOIN reward_wallets w ON w.customer_id = c.id
-       WHERE c.scso_user_id = ? AND c.id = ?
-       LIMIT 1`,
-      [payload.bikeId, scsoUserId, payload.customerId]
-    );
+      if (!customer) {
+        throw new ApiError(StatusCodes.NOT_FOUND, "Customer or bike not found");
+      }
 
-    const customer = customerRows[0];
-    if (!customer) {
-      throw new ApiError(StatusCodes.NOT_FOUND, "Customer or bike not found");
-    }
+      const bike = customer.bikes?.[0];
+      const wallet = customer.reward_wallet;
 
-    const [serviceRows] = await connection.query(
-      `SELECT id, service_name, price, reward_points
-       FROM services
-       WHERE scso_user_id = ? AND id IN (?) AND status = 'active'`,
-      [scsoUserId, payload.serviceIds]
-    );
+      const services = await serviceRepository.findActiveByIds(scsoUserId, payload.serviceIds, { transaction });
+      if (!services.length) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, "No valid services selected");
+      }
 
-    if (!serviceRows.length) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, "No valid services selected");
-    }
+      const subtotal = services.reduce((sum, item) => sum + Number(item.price), 0);
+      const pointsEarned = services.reduce((sum, item) => sum + Number(item.reward_points), 0);
+      const discountAmount = Number(payload.discountAmount || 0);
+      const pointsToRedeem = Number(payload.pointsToRedeem || 0);
 
-    const subtotal = serviceRows.reduce((sum, item) => sum + Number(item.price), 0);
-    const pointsEarned = serviceRows.reduce((sum, item) => sum + Number(item.reward_points), 0);
-    const discountAmount = Number(payload.discountAmount || 0);
-    const pointsToRedeem = Number(payload.pointsToRedeem || 0);
+      if (pointsToRedeem > wallet.current_balance) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, "Insufficient wallet points");
+      }
 
-    if (pointsToRedeem > customer.current_balance) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, "Insufficient wallet points");
-    }
+      const finalAmount = Math.max(subtotal - discountAmount - pointsToRedeem, 0);
 
-    const finalAmount = Math.max(subtotal - discountAmount - pointsToRedeem, 0);
-
-    const [recordResult] = await connection.query(
-      `INSERT INTO service_records
-       (scso_user_id, customer_id, bike_id, service_date, service_notes, total_amount, discount_amount, final_amount, points_earned, points_used, reminder_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        scsoUserId,
-        payload.customerId,
-        payload.bikeId,
-        payload.serviceDate || new Date(),
-        payload.serviceNotes || null,
-        subtotal,
-        discountAmount,
-        finalAmount,
-        pointsEarned,
-        pointsToRedeem,
-        payload.reminderDate || null
-      ]
-    );
-
-    for (const service of serviceRows) {
-      await connection.query(
-        `INSERT INTO service_record_items
-         (service_record_id, service_id, service_name, price, reward_points)
-         VALUES (?, ?, ?, ?, ?)`,
-        [recordResult.insertId, service.id, service.service_name, service.price, service.reward_points]
+      const record = await serviceRecordRepository.create(
+        {
+          scso_user_id: scsoUserId,
+          customer_id: payload.customerId,
+          bike_id: payload.bikeId,
+          service_date: payload.serviceDate || new Date(),
+          service_notes: payload.serviceNotes || null,
+          total_amount: subtotal,
+          discount_amount: discountAmount,
+          final_amount: finalAmount,
+          points_earned: pointsEarned,
+          points_used: pointsToRedeem,
+          reminder_date: payload.reminderDate || null
+        },
+        { transaction }
       );
-    }
 
-    let walletBalance = customer.current_balance;
-
-    if (pointsToRedeem > 0) {
-      walletBalance -= pointsToRedeem;
-      await connection.query("UPDATE reward_wallets SET current_balance = ? WHERE id = ?", [
-        walletBalance,
-        customer.wallet_id
-      ]);
-      await connection.query(
-        `INSERT INTO reward_transactions (wallet_id, service_record_id, type, points, note)
-         VALUES (?, ?, 'redeemed', ?, ?)`,
-        [customer.wallet_id, recordResult.insertId, pointsToRedeem, "Points used on service invoice"]
+      await serviceRecordItemRepository.bulkCreate(
+        services.map((service) => ({
+          service_record_id: record.id,
+          service_id: service.id,
+          service_name: service.service_name,
+          price: service.price,
+          reward_points: service.reward_points
+        })),
+        { transaction }
       );
-    }
 
-    walletBalance += pointsEarned;
-    await connection.query("UPDATE reward_wallets SET current_balance = ? WHERE id = ?", [
-      walletBalance,
-      customer.wallet_id
+      let walletBalance = wallet.current_balance;
+
+      if (pointsToRedeem > 0) {
+        walletBalance -= pointsToRedeem;
+        await rewardWalletRepository.updateBalance(wallet.id, walletBalance, { transaction });
+        await rewardTransactionRepository.create(
+          {
+            wallet_id: wallet.id,
+            service_record_id: record.id,
+            type: "redeemed",
+            points: pointsToRedeem,
+            note: "Points used on service invoice"
+          },
+          { transaction }
+        );
+      }
+
+      walletBalance += pointsEarned;
+      await rewardWalletRepository.updateBalance(wallet.id, walletBalance, { transaction });
+      await rewardTransactionRepository.create(
+        {
+          wallet_id: wallet.id,
+          service_record_id: record.id,
+          type: "earned",
+          points: pointsEarned,
+          note: "Points earned from service record"
+        },
+        { transaction }
+      );
+
+      const serviceDate = record.service_date || new Date();
+      const serviceReminders = services
+        .filter((service) => Number(service.reminder_months) > 0)
+        .map((service) => ({
+          scso_user_id: scsoUserId,
+          customer_id: payload.customerId,
+          service_record_id: record.id,
+          reminder_type: service.service_name,
+          message: `${service.service_name} is due soon. Last service date: ${new Date(serviceDate).toLocaleDateString("en-IN")}.`,
+          scheduled_at: buildServiceReminderDate(serviceDate, service.reminder_months),
+          status: "pending"
+        }));
+
+      if (payload.reminderDate) {
+        serviceReminders.push({
+          scso_user_id: scsoUserId,
+          customer_id: payload.customerId,
+          service_record_id: record.id,
+          reminder_type: payload.reminderType || "Next service reminder",
+          message: payload.reminderMessage || "Your next bike service is due soon. Visit us again at BikeXpert.",
+          scheduled_at: payload.reminderDate,
+          status: "pending"
+        });
+      }
+
+      if (serviceReminders.length) {
+        await Promise.all(serviceReminders.map((reminder) => reminderRepository.create(reminder, { transaction })));
+      }
+
+      const shop = await scsoUserRepository.findShopInfo(scsoUserId, { transaction });
+      const invoiceNumber = createInvoiceNumber(record.id);
+      const invoiceSummary = `${invoiceNumber}\nCustomer: ${customer.full_name}\nBike: ${bike.bike_model} (${bike.bike_number})\nAmount: INR ${finalAmount}\nPoints Earned: ${pointsEarned}\nThank you for choosing ${shop.shop_name}.`;
+      const whatsappShareLink = buildWhatsappLink(customer.whatsapp_number || customer.phone_number, invoiceSummary);
+
+      await invoiceRepository.create(
+        {
+          service_record_id: record.id,
+          invoice_number: invoiceNumber,
+          shop_name: shop.shop_name,
+          shop_address: shop.shop_address || "",
+          shop_phone: shop.phone || "",
+          customer_name: customer.full_name,
+          customer_phone: customer.phone_number,
+          whatsapp_number: customer.whatsapp_number || "",
+          bike_model: bike.bike_model,
+          bike_number: bike.bike_number,
+          subtotal,
+          discount_amount: discountAmount,
+          final_total: finalAmount,
+          points_earned: pointsEarned,
+          points_used: pointsToRedeem,
+          whatsapp_share_link: whatsappShareLink
+        },
+        { transaction }
+      );
+
+      return record.id;
+    });
+  },
+
+  async listServiceRecords(scsoUserId, filters = {}) {
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 100);
+    const [pagedRecords, filteredRecords] = await Promise.all([
+      serviceRecordRepository.listForScso(scsoUserId, { ...filters, page, limit }),
+      serviceRecordRepository.listForScso(scsoUserId, filters)
     ]);
-    await connection.query(
-      `INSERT INTO reward_transactions (wallet_id, service_record_id, type, points, note)
-       VALUES (?, ?, 'earned', ?, ?)`,
-      [customer.wallet_id, recordResult.insertId, pointsEarned, "Points earned from service record"]
-    );
+    const customerVisitCounts = filteredRecords.reduce((counts, record) => {
+      const customerId = record.customer_id;
+      counts[customerId] = (counts[customerId] || 0) + 1;
+      return counts;
+    }, {});
+    const uniqueCustomerVisitCounts = Object.values(customerVisitCounts);
+    const total = pagedRecords.count || 0;
 
-    if (payload.reminderDate) {
-      await connection.query(
-        `INSERT INTO reminders (scso_user_id, customer_id, service_record_id, reminder_type, message, scheduled_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-        [
-          scsoUserId,
-          payload.customerId,
-          recordResult.insertId,
-          payload.reminderType || "Next service reminder",
-          payload.reminderMessage || "Your next bike service is due soon. Visit us again at BikeXpert.",
-          payload.reminderDate
-        ]
-      );
+    const mapRecord = (record) => ({
+      id: record.id,
+      serviceDate: record.service_date,
+      totalAmount: Number(record.total_amount),
+      discountAmount: Number(record.discount_amount),
+      finalAmount: Number(record.final_amount),
+      pointsEarned: record.points_earned,
+      pointsUsed: record.points_used,
+      customerName: record.customer?.full_name,
+      bikeModel: record.bike?.bike_model,
+      bikeNumber: record.bike?.bike_number,
+      invoiceId: record.invoice?.id || null
+    });
+
+    return {
+      items: pagedRecords.rows.map(mapRecord),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(Math.ceil(total / limit), 1)
+      },
+      summary: {
+        totalSales: filteredRecords.reduce((sum, record) => sum + Number(record.final_amount || 0), 0),
+        totalJobCards: filteredRecords.length,
+        newCustomers: uniqueCustomerVisitCounts.filter((count) => count === 1).length,
+        oldCustomers: uniqueCustomerVisitCounts.filter((count) => count > 1).length
+      }
+    };
+  },
+
+  async getServiceRecordDetail(scsoUserId, recordId) {
+    const record = await serviceRecordRepository.findDetailForScso(scsoUserId, recordId);
+
+    if (!record) {
+      throw new ApiError(StatusCodes.NOT_FOUND, "Service record not found");
     }
 
-    const [shopRows] = await connection.query(
-      "SELECT shop_name, phone, shop_address, whatsapp_number FROM scso_users WHERE id = ? LIMIT 1",
-      [scsoUserId]
-    );
-    const shop = shopRows[0];
+    const [items, invoice] = await Promise.all([
+      serviceRecordItemRepository.findByServiceRecordId(recordId),
+      invoiceRepository.findByServiceRecordId(recordId)
+    ]);
 
-    const invoiceNumber = createInvoiceNumber(recordResult.insertId);
-    const invoiceSummary = `${invoiceNumber}\nCustomer: ${customer.full_name}\nBike: ${customer.bike_model} (${customer.bike_number})\nAmount: INR ${finalAmount}\nPoints Earned: ${pointsEarned}\nThank you for choosing ${shop.shop_name}.`;
-    const whatsappShareLink = buildWhatsappLink(customer.whatsapp_number || customer.phone_number, invoiceSummary);
+    return {
+      id: record.id,
+      serviceDate: record.service_date,
+      serviceNotes: record.service_notes,
+      totalAmount: Number(record.total_amount),
+      discountAmount: Number(record.discount_amount),
+      finalAmount: Number(record.final_amount),
+      pointsEarned: record.points_earned,
+      pointsUsed: record.points_used,
+      customerName: record.customer?.full_name,
+      phoneNumber: record.customer?.phone_number,
+      whatsappNumber: record.customer?.whatsapp_number,
+      bikeModel: record.bike?.bike_model,
+      bikeNumber: record.bike?.bike_number,
+      items: items.map((item) => ({
+        id: item.id,
+        serviceId: item.service_id,
+        serviceName: item.service_name,
+        price: Number(item.price),
+        rewardPoints: item.reward_points
+      })),
+      invoice: invoice
+        ? {
+            id: invoice.id,
+            invoiceNumber: invoice.invoice_number,
+            whatsappShareLink: invoice.whatsapp_share_link
+          }
+        : null
+    };
+  },
 
-    await connection.query(
-      `INSERT INTO invoices
-       (service_record_id, invoice_number, shop_name, shop_address, shop_phone, customer_name, customer_phone,
-        whatsapp_number, bike_model, bike_number, subtotal, discount_amount, final_total, points_earned, points_used, whatsapp_share_link)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        recordResult.insertId,
-        invoiceNumber,
-        shop.shop_name,
-        shop.shop_address || "",
-        shop.phone || "",
-        customer.full_name,
-        customer.phone_number,
-        customer.whatsapp_number || "",
-        customer.bike_model,
-        customer.bike_number,
-        subtotal,
-        discountAmount,
-        finalAmount,
-        pointsEarned,
-        pointsToRedeem,
-        whatsappShareLink
-      ]
-    );
+  async getScsoDashboard(scsoUserId) {
+    const [totalCustomers, totalServices, totalReminders, totalBills, totalRewardPointsIssued, recentCustomers, recentServiceHistory, chartData] =
+      await Promise.all([
+        customerRepository.countForScso(scsoUserId),
+        serviceRepository.countForScso(scsoUserId),
+        reminderRepository.countForScso(scsoUserId),
+        invoiceRepository.countForScso(scsoUserId),
+        serviceRecordRepository.sumRewardPointsForScso(scsoUserId),
+        customerRepository.findRecentForScso(scsoUserId, 5),
+        serviceRecordRepository.findRecentForScso(scsoUserId, 5),
+        serviceRecordRepository.findChartDataForScso(scsoUserId)
+      ]);
 
-    await connection.commit();
-    return recordResult.insertId;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
+    return {
+      counts: {
+        totalCustomers,
+        totalServices,
+        totalReminders,
+        totalBills,
+        totalRewardPointsIssued: Number(totalRewardPointsIssued || 0)
+      },
+      recentCustomers: recentCustomers.map((customer) => ({
+        id: customer.id,
+        fullName: customer.full_name,
+        phoneNumber: customer.phone_number,
+        createdAt: customer.created_at
+      })),
+      recentServiceHistory: recentServiceHistory.map((record) => ({
+        id: record.id,
+        serviceDate: record.service_date,
+        finalAmount: Number(record.final_amount),
+        customerName: record.customer?.full_name
+      })),
+      chartData: chartData
+        .map((item) => ({
+          month: item.month,
+          totalServices: Number(item.totalServices),
+          revenue: Number(item.revenue || 0)
+        }))
+        .reverse()
+    };
   }
 };
 
-const listServiceRecords = async (scsoUserId) => {
-  const [rows] = await pool.query(
-    `SELECT sr.id, sr.service_date AS serviceDate, sr.total_amount AS totalAmount, sr.discount_amount AS discountAmount,
-            sr.final_amount AS finalAmount, sr.points_earned AS pointsEarned, sr.points_used AS pointsUsed,
-            c.full_name AS customerName, b.bike_model AS bikeModel, b.bike_number AS bikeNumber, i.id AS invoiceId
-     FROM service_records sr
-     INNER JOIN customers c ON c.id = sr.customer_id
-     INNER JOIN bikes b ON b.id = sr.bike_id
-     LEFT JOIN invoices i ON i.service_record_id = sr.id
-     WHERE sr.scso_user_id = ?
-     ORDER BY sr.service_date DESC`,
-    [scsoUserId]
-  );
-
-  return rows;
-};
-
-const getServiceRecordDetail = async (scsoUserId, recordId) => {
-  const [recordRows] = await pool.query(
-    `SELECT sr.id, sr.service_date AS serviceDate, sr.service_notes AS serviceNotes, sr.total_amount AS totalAmount,
-            sr.discount_amount AS discountAmount, sr.final_amount AS finalAmount, sr.points_earned AS pointsEarned,
-            sr.points_used AS pointsUsed, c.full_name AS customerName, c.phone_number AS phoneNumber,
-            c.whatsapp_number AS whatsappNumber, b.bike_model AS bikeModel, b.bike_number AS bikeNumber
-     FROM service_records sr
-     INNER JOIN customers c ON c.id = sr.customer_id
-     INNER JOIN bikes b ON b.id = sr.bike_id
-     WHERE sr.scso_user_id = ? AND sr.id = ?
-     LIMIT 1`,
-    [scsoUserId, recordId]
-  );
-
-  const record = recordRows[0];
-  if (!record) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Service record not found");
-  }
-
-  const [items] = await pool.query(
-    `SELECT id, service_id AS serviceId, service_name AS serviceName, price, reward_points AS rewardPoints
-     FROM service_record_items
-     WHERE service_record_id = ?`,
-    [recordId]
-  );
-
-  const [invoiceRows] = await pool.query(
-    `SELECT id, invoice_number AS invoiceNumber, whatsapp_share_link AS whatsappShareLink
-     FROM invoices
-     WHERE service_record_id = ?
-     LIMIT 1`,
-    [recordId]
-  );
-
-  return {
-    ...record,
-    items,
-    invoice: invoiceRows[0] || null
-  };
-};
-
-const getScsoDashboard = async (scsoUserId) => {
-  const [[counts]] = await pool.query(
-    `SELECT
-      (SELECT COUNT(*) FROM customers WHERE scso_user_id = ?) AS totalCustomers,
-      (SELECT COUNT(*) FROM services WHERE scso_user_id = ?) AS totalServices,
-      (SELECT COUNT(*) FROM reminders WHERE scso_user_id = ?) AS totalReminders,
-      (SELECT COUNT(*) FROM invoices i INNER JOIN service_records sr ON sr.id = i.service_record_id WHERE sr.scso_user_id = ?) AS totalBills,
-      (SELECT COALESCE(SUM(points_earned), 0) FROM service_records WHERE scso_user_id = ?) AS totalRewardPointsIssued`,
-    [scsoUserId, scsoUserId, scsoUserId, scsoUserId, scsoUserId]
-  );
-
-  const [recentCustomers] = await pool.query(
-    `SELECT id, full_name AS fullName, phone_number AS phoneNumber, created_at AS createdAt
-     FROM customers
-     WHERE scso_user_id = ?
-     ORDER BY created_at DESC
-     LIMIT 5`,
-    [scsoUserId]
-  );
-
-  const [recentServiceHistory] = await pool.query(
-    `SELECT sr.id, sr.service_date AS serviceDate, sr.final_amount AS finalAmount, c.full_name AS customerName
-     FROM service_records sr
-     INNER JOIN customers c ON c.id = sr.customer_id
-     WHERE sr.scso_user_id = ?
-     ORDER BY sr.service_date DESC
-     LIMIT 5`,
-    [scsoUserId]
-  );
-
-  const [chartData] = await pool.query(
-    `SELECT DATE_FORMAT(service_date, '%Y-%m') AS month, COUNT(*) AS totalServices, SUM(final_amount) AS revenue
-     FROM service_records
-     WHERE scso_user_id = ?
-     GROUP BY DATE_FORMAT(service_date, '%Y-%m')
-     ORDER BY month DESC
-     LIMIT 6`,
-    [scsoUserId]
-  );
-
-  return {
-    counts,
-    recentCustomers,
-    recentServiceHistory,
-    chartData: chartData.reverse()
-  };
-};
-
-module.exports = {
-  createServiceRecord,
-  listServiceRecords,
-  getServiceRecordDetail,
-  getScsoDashboard
-};
+export default recordService;

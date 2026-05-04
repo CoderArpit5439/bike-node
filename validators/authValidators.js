@@ -1,11 +1,11 @@
-const { body } = require("express-validator");
+import { body } from "express-validator";
 
-const loginValidation = [
+export const loginValidation = [
   body("email").isEmail().withMessage("Valid email is required"),
   body("password").notEmpty().withMessage("Password is required")
 ];
 
-const scsoSignupValidation = [
+export const scsoSignupValidation = [
   body("name").trim().notEmpty().withMessage("Name is required"),
   body("email").isEmail().withMessage("Valid email is required"),
   body("phone").trim().notEmpty().withMessage("Phone number is required"),
@@ -14,8 +14,3 @@ const scsoSignupValidation = [
     .withMessage("Password must be at least 6 characters long"),
   body("shopName").trim().notEmpty().withMessage("Shop name is required")
 ];
-
-module.exports = {
-  loginValidation,
-  scsoSignupValidation
-};

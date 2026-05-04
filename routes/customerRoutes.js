@@ -1,15 +1,18 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const customerController = require("../controllers/customerController");
-const { customerValidation } = require("../validators/customerValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { addBike, createCustomer, getCustomerDetails, getWalletSummary, listCustomers, updateCustomer } from "../controllers/customerController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { customerValidation } from "../validators/customerValidators.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("scso"));
 
-router.post("/", customerValidation, validate, customerController.createCustomer);
-router.get("/", customerController.listCustomers);
-router.get("/:id", customerController.getCustomerDetails);
-router.put("/:id", customerValidation, validate, customerController.updateCustomer);
-router.get("/:id/wallet", customerController.getWalletSummary);
+router.post("/", customerValidation, validate, createCustomer);
+router.get("/", listCustomers);
+router.get("/:id", getCustomerDetails);
+router.put("/:id", customerValidation, validate, updateCustomer);
+router.post("/:id/bikes", addBike);
+router.get("/:id/wallet", getWalletSummary);
 
-module.exports = router;
+export default router;

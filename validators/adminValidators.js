@@ -1,6 +1,6 @@
-const { body } = require("express-validator");
+import { body } from "express-validator";
 
-const scsoValidation = [
+export const scsoValidation = [
   body("name").trim().notEmpty().withMessage("Name is required"),
   body("email").isEmail().withMessage("Valid email is required"),
   body("phone").trim().notEmpty().withMessage("Phone number is required"),
@@ -10,7 +10,3 @@ const scsoValidation = [
     .isLength({ min: 6 })
     .withMessage("Password must be at least 6 characters long")
 ];
-
-module.exports = {
-  scsoValidation
-};

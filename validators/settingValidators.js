@@ -1,11 +1,8 @@
-const { body } = require("express-validator");
+import { body } from "express-validator";
 
-const settingValidation = [
+export const settingValidation = [
+  body("shopName").optional().isString(),
   body("shopAddress").optional().isString(),
   body("shopPhone").optional().isString(),
   body("mapIframeUrl").optional().isString()
 ];
-
-module.exports = {
-  settingValidation
-};

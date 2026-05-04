@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS services (
   description TEXT,
   price DECIMAL(10,2) NOT NULL DEFAULT 0,
   reward_points INT NOT NULL DEFAULT 0,
+  reminder_months INT NOT NULL DEFAULT 0,
   status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

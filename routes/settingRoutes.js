@@ -1,12 +1,14 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const settingController = require("../controllers/settingController");
-const { settingValidation } = require("../validators/settingValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { getSettings, updateSettings } from "../controllers/settingController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { settingValidation } from "../validators/settingValidators.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("scso"));
 
-router.get("/", settingController.getSettings);
-router.put("/", settingValidation, validate, settingController.updateSettings);
+router.get("/", getSettings);
+router.put("/", settingValidation, validate, updateSettings);
 
-module.exports = router;
+export default router;

@@ -1,12 +1,14 @@
-const router = require("express").Router();
-const { validate } = require("../utils/validation");
-const { authMiddleware } = require("../middleware/authMiddleware");
-const authController = require("../controllers/authController");
-const { loginValidation, scsoSignupValidation } = require("../validators/authValidators");
+import express from "express";
+import { adminLogin, getProfile, scsoLogin, scsoSignup } from "../controllers/authController.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { loginValidation, scsoSignupValidation } from "../validators/authValidators.js";
 
-router.post("/admin/login", loginValidation, validate, authController.adminLogin);
-router.post("/scso/signup", scsoSignupValidation, validate, authController.scsoSignup);
-router.post("/scso/login", loginValidation, validate, authController.scsoLogin);
-router.get("/profile", authMiddleware, authController.getProfile);
+const router = express.Router();
 
-module.exports = router;
+router.post("/admin/login", loginValidation, validate, adminLogin);
+router.post("/scso/signup", scsoSignupValidation, validate, scsoSignup);
+router.post("/scso/login", loginValidation, validate, scsoLogin);
+router.get("/profile", authMiddleware, getProfile);
+
+export default router;

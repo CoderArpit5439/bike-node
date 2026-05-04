@@ -1,19 +1,19 @@
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const morgan = require("morgan");
-const { getEnvValue } = require("./config/env");
-const { notFoundMiddleware, errorMiddleware } = require("./middleware/errorMiddleware");
-
-const authRoutes = require("./routes/authRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const customerRoutes = require("./routes/customerRoutes");
-const serviceRoutes = require("./routes/serviceRoutes");
-const recordRoutes = require("./routes/recordRoutes");
-const reminderRoutes = require("./routes/reminderRoutes");
-const invoiceRoutes = require("./routes/invoiceRoutes");
-const settingRoutes = require("./routes/settingRoutes");
-const publicRoutes = require("./routes/publicRoutes");
+import "dotenv/config";
+import cors from "cors";
+import express from "express";
+import helmet from "helmet";
+import morgan from "morgan";
+import { getEnvValue } from "./config/env.config.js";
+import { errorMiddleware, notFoundMiddleware } from "./middleware/errorMiddleware.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import customerRoutes from "./routes/customerRoutes.js";
+import invoiceRoutes from "./routes/invoiceRoutes.js";
+import publicRoutes from "./routes/publicRoutes.js";
+import recordRoutes from "./routes/recordRoutes.js";
+import reminderRoutes from "./routes/reminderRoutes.js";
+import serviceRoutes from "./routes/serviceRoutes.js";
+import settingRoutes from "./routes/settingRoutes.js";
 
 const app = express();
 
@@ -44,4 +44,4 @@ app.use("/api/public", publicRoutes);
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
 
-module.exports = app;
+export default app;

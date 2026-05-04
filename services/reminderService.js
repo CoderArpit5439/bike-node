@@ -1,68 +1,53 @@
-const { pool } = require("../config/db");
-const ApiError = require("../utils/apiError");
-const { StatusCodes } = require("http-status-codes");
+import { StatusCodes } from "http-status-codes";
+import customerRepository from "../repositories/customer.repository.js";
+import reminderRepository from "../repositories/reminder.repository.js";
+import ApiError from "../utils/apiError.js";
 
-const createReminder = async (scsoUserId, payload) => {
-  const [customerRows] = await pool.query(
-    "SELECT id FROM customers WHERE scso_user_id = ? AND id = ? LIMIT 1",
-    [scsoUserId, payload.customerId]
-  );
+const reminderService = {
+  async createReminder(scsoUserId, payload) {
+    const customer = await customerRepository.findByIdForScso(scsoUserId, payload.customerId);
+    if (!customer) {
+      throw new ApiError(StatusCodes.NOT_FOUND, "Customer not found");
+    }
 
-  if (!customerRows.length) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Customer not found");
-  }
+    const reminder = await reminderRepository.create({
+      scso_user_id: scsoUserId,
+      customer_id: payload.customerId,
+      service_record_id: payload.serviceRecordId || null,
+      reminder_type: payload.reminderType,
+      message: payload.message,
+      scheduled_at: payload.scheduledAt,
+      status: payload.status || "pending"
+    });
 
-  const [result] = await pool.query(
-    `INSERT INTO reminders (scso_user_id, customer_id, service_record_id, reminder_type, message, scheduled_at, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      scsoUserId,
-      payload.customerId,
-      payload.serviceRecordId || null,
-      payload.reminderType,
-      payload.message,
-      payload.scheduledAt,
-      payload.status || "pending"
-    ]
-  );
+    return reminder.id;
+  },
 
-  return result.insertId;
-};
+  async listReminders(scsoUserId, filters) {
+    const reminders = await reminderRepository.listForScso(scsoUserId, filters);
+    return reminders.map((reminder) => ({
+      id: reminder.id,
+      reminderType: reminder.reminder_type,
+      message: reminder.message,
+      scheduledAt: reminder.scheduled_at,
+      lastServiceDate: reminder.service_record?.service_date || null,
+      status: reminder.status,
+      customerName: reminder.customer?.full_name
+    }));
+  },
 
-const listReminders = async (scsoUserId, { status = "" }) => {
-  const params = [scsoUserId];
-  let query = `
-    SELECT r.id, r.reminder_type AS reminderType, r.message, r.scheduled_at AS scheduledAt,
-           r.status, c.full_name AS customerName
-    FROM reminders r
-    INNER JOIN customers c ON c.id = r.customer_id
-    WHERE r.scso_user_id = ?`;
+  async updateReminder(scsoUserId, reminderId, payload) {
+    const [affectedRows] = await reminderRepository.updateForScso(scsoUserId, reminderId, {
+      reminder_type: payload.reminderType,
+      message: payload.message,
+      scheduled_at: payload.scheduledAt,
+      status: payload.status
+    });
 
-  if (status) {
-    query += " AND r.status = ?";
-    params.push(status);
-  }
-
-  query += " ORDER BY r.scheduled_at ASC";
-  const [rows] = await pool.query(query, params);
-  return rows;
-};
-
-const updateReminder = async (scsoUserId, reminderId, payload) => {
-  const [result] = await pool.query(
-    `UPDATE reminders
-     SET reminder_type = ?, message = ?, scheduled_at = ?, status = ?
-     WHERE scso_user_id = ? AND id = ?`,
-    [payload.reminderType, payload.message, payload.scheduledAt, payload.status, scsoUserId, reminderId]
-  );
-
-  if (!result.affectedRows) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Reminder not found");
+    if (!affectedRows) {
+      throw new ApiError(StatusCodes.NOT_FOUND, "Reminder not found");
+    }
   }
 };
 
-module.exports = {
-  createReminder,
-  listReminders,
-  updateReminder
-};
+export default reminderService;

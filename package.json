@@ -2,6 +2,7 @@
   "name": "bikexpert-backend",
   "version": "1.0.0",
   "description": "BikeXpert backend API",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
@@ -17,8 +18,9 @@
     "helmet": "^8.0.0",
     "http-status-codes": "^2.3.0",
     "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
     "mysql2": "^3.11.3",
-    "morgan": "^1.10.0"
+    "sequelize": "^6.37.8"
   },
   "devDependencies": {
     "nodemon": "^3.1.7"

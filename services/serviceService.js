@@ -1,81 +1,74 @@
-const { pool } = require("../config/db");
-const ApiError = require("../utils/apiError");
-const { StatusCodes } = require("http-status-codes");
+import { StatusCodes } from "http-status-codes";
+import serviceRepository from "../repositories/service.repository.js";
+import ApiError from "../utils/apiError.js";
 
-const createService = async (scsoUserId, payload) => {
-  const [result] = await pool.query(
-    `INSERT INTO services (scso_user_id, service_name, description, price, reward_points, status)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      scsoUserId,
-      payload.serviceName,
-      payload.description || null,
-      payload.price,
-      payload.rewardPoints,
-      payload.status || "active"
-    ]
-  );
+const mapService = (service) => ({
+  id: service.id,
+  serviceName: service.service_name,
+  description: service.description,
+  price: Number(service.price),
+  rewardPoints: service.reward_points,
+  reminderMonths: service.reminder_months,
+  status: service.status,
+  createdAt: service.created_at
+});
 
-  return result.insertId;
-};
+const serviceService = {
+  async createService(scsoUserId, payload) {
+    const service = await serviceRepository.create({
+      scso_user_id: scsoUserId,
+      service_name: payload.serviceName,
+      description: payload.description || null,
+      price: payload.price,
+      reward_points: payload.rewardPoints,
+      reminder_months: Number(payload.reminderMonths || 0),
+      status: payload.status || "active"
+    });
 
-const listServices = async (scsoUserId, { search = "" }) => {
-  const params = [scsoUserId];
-  let query = `
-    SELECT id, service_name AS serviceName, description, price, reward_points AS rewardPoints,
-           status, created_at AS createdAt
-    FROM services
-    WHERE scso_user_id = ?`;
+    return service.id;
+  },
 
-  if (search) {
-    query += " AND service_name LIKE ?";
-    params.push(`%${search}%`);
-  }
+  async listServices(scsoUserId, filters) {
+    const result = await serviceRepository.listForScso(scsoUserId, filters);
+    if (result.rows) {
+      const page = Math.max(Number(filters.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 100);
+      return {
+        items: result.rows.map(mapService),
+        pagination: {
+          page,
+          limit,
+          total: result.count,
+          totalPages: Math.max(Math.ceil(result.count / limit), 1)
+        }
+      };
+    }
 
-  query += " ORDER BY created_at DESC";
-  const [rows] = await pool.query(query, params);
-  return rows;
-};
+    return result.map(mapService);
+  },
 
-const updateService = async (scsoUserId, serviceId, payload) => {
-  const [existing] = await pool.query(
-    "SELECT id FROM services WHERE scso_user_id = ? AND id = ? LIMIT 1",
-    [scsoUserId, serviceId]
-  );
-  if (!existing.length) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Service not found");
-  }
+  async updateService(scsoUserId, serviceId, payload) {
+    const existing = await serviceRepository.findByIdForScso(scsoUserId, serviceId);
+    if (!existing) {
+      throw new ApiError(StatusCodes.NOT_FOUND, "Service not found");
+    }
 
-  await pool.query(
-    `UPDATE services
-     SET service_name = ?, description = ?, price = ?, reward_points = ?, status = ?
-     WHERE scso_user_id = ? AND id = ?`,
-    [
-      payload.serviceName,
-      payload.description || null,
-      payload.price,
-      payload.rewardPoints,
-      payload.status || "active",
-      scsoUserId,
-      serviceId
-    ]
-  );
-};
+    await serviceRepository.updateForScso(scsoUserId, serviceId, {
+      service_name: payload.serviceName,
+      description: payload.description || null,
+      price: payload.price,
+      reward_points: payload.rewardPoints,
+      reminder_months: Number(payload.reminderMonths || 0),
+      status: payload.status || "active"
+    });
+  },
 
-const deleteService = async (scsoUserId, serviceId) => {
-  const [result] = await pool.query("DELETE FROM services WHERE scso_user_id = ? AND id = ?", [
-    scsoUserId,
-    serviceId
-  ]);
-
-  if (!result.affectedRows) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Service not found");
+  async deleteService(scsoUserId, serviceId) {
+    const deleted = await serviceRepository.deleteForScso(scsoUserId, serviceId);
+    if (!deleted) {
+      throw new ApiError(StatusCodes.NOT_FOUND, "Service not found");
+    }
   }
 };
 
-module.exports = {
-  createService,
-  listServices,
-  updateService,
-  deleteService
-};
+export default serviceService;

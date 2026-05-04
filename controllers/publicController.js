@@ -1,17 +1,12 @@
-const asyncHandler = require("../utils/asyncHandler");
-const publicService = require("../services/publicService");
+import asyncHandler from "../utils/asyncHandler.js";
+import publicService from "../services/publicService.js";
 
-const getBootstrap = asyncHandler(async (_req, res) => {
+export const getBootstrap = asyncHandler(async (_req, res) => {
   const data = await publicService.getPublicBootstrap();
   res.json({ success: true, data });
 });
 
-const submitContactForm = asyncHandler(async (req, res) => {
+export const submitContactForm = asyncHandler(async (req, res) => {
   await publicService.submitContactMessage(req.body);
   res.status(201).json({ success: true, message: "Message submitted successfully" });
 });
-
-module.exports = {
-  getBootstrap,
-  submitContactForm
-};

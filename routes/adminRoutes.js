@@ -1,16 +1,18 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const adminController = require("../controllers/adminController");
-const { scsoValidation } = require("../validators/adminValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { createScso, getDashboard, listCustomers, listScso, toggleScsoStatus, updateScso } from "../controllers/adminController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { scsoValidation } from "../validators/adminValidators.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("admin"));
 
-router.get("/dashboard", adminController.getDashboard);
-router.post("/scso", scsoValidation, validate, adminController.createScso);
-router.get("/scso", adminController.listScso);
-router.put("/scso/:id", scsoValidation, validate, adminController.updateScso);
-router.patch("/scso/:id/toggle-status", adminController.toggleScsoStatus);
-router.get("/customers", adminController.listCustomers);
+router.get("/dashboard", getDashboard);
+router.post("/scso", scsoValidation, validate, createScso);
+router.get("/scso", listScso);
+router.put("/scso/:id", scsoValidation, validate, updateScso);
+router.patch("/scso/:id/toggle-status", toggleScsoStatus);
+router.get("/customers", listCustomers);
 
-module.exports = router;
+export default router;

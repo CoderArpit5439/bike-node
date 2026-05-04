@@ -1,14 +1,16 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const recordController = require("../controllers/recordController");
-const { recordValidation } = require("../validators/recordValidators");
-const { validate } = require("../utils/validation");
+import express from "express";
+import { createRecord, getDashboard, getRecordDetail, listRecords } from "../controllers/recordController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+import { validate } from "../utils/validation.js";
+import { recordValidation } from "../validators/recordValidators.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("scso"));
 
-router.get("/dashboard", recordController.getDashboard);
-router.post("/", recordValidation, validate, recordController.createRecord);
-router.get("/", recordController.listRecords);
-router.get("/:id", recordController.getRecordDetail);
+router.get("/dashboard", getDashboard);
+router.post("/", recordValidation, validate, createRecord);
+router.get("/", listRecords);
+router.get("/:id", getRecordDetail);
 
-module.exports = router;
+export default router;

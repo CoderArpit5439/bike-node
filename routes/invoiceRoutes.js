@@ -1,9 +1,11 @@
-const router = require("express").Router();
-const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
-const invoiceController = require("../controllers/invoiceController");
+import express from "express";
+import { getInvoiceDetail } from "../controllers/invoiceController.js";
+import { authMiddleware, roleMiddleware } from "../middleware/authMiddleware.js";
+
+const router = express.Router();
 
 router.use(authMiddleware, roleMiddleware("scso"));
 
-router.get("/:id", invoiceController.getInvoiceDetail);
+router.get("/:id", getInvoiceDetail);
 
-module.exports = router;
+export default router;
